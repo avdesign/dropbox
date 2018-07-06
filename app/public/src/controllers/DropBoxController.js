@@ -2,8 +2,11 @@ class DropBoxController {
 
     constructor(){
 
+        this.currentFolder = ['avdesign'];
+
         this.onselectionchange = new Event('selectiononchange');
 
+        this.navEl = document.querySelector('#browse-location');
         this.btnSendFileEl = document.querySelector('#btn-send-file');
         this.inputFilesEl  = document.querySelector('#files');
         this.snackModalEl  = document.querySelector('#react-snackbar-root');
@@ -18,7 +21,9 @@ class DropBoxController {
 
         this.connectFirebase();
         this.initEvents();
-        this.readFiles();
+
+        this.openFolder();
+        
     }
 
     connectFirebase(){
@@ -34,12 +39,25 @@ class DropBoxController {
         };
 
         firebase.initializeApp(config);
-          
-
     }
 
 
     initEvents(){
+
+        this.btnNewFolder.addEventListener('click', e => {
+
+            let name =  prompt('Nome da nova pasta:');
+
+            if (name) {
+
+                this.getFirebaseRef().push().set({
+                    name,
+                    type: 'folder',
+                    path: this.currentFolder.join('/')
+
+                });
+            }
+        });
 
         this.btnRename.addEventListener('click', e => {
 
@@ -83,7 +101,6 @@ class DropBoxController {
         this.listFilesEl.addEventListener('selectiononchange', e => {
 
             //console.log('selectiononchange', this.getSelection().length);
-
             switch (this.getSelection().length) {
 
                 case 0:
@@ -113,7 +130,6 @@ class DropBoxController {
         this.inputFilesEl.addEventListener('change', event  => {
 
             //console.log(event.target.files);
-
             this.btnSendFileEl.disabled = true;
 
             this.uploadTask(event.target.files).then(responses => {
@@ -136,12 +152,121 @@ class DropBoxController {
 
             this.modalShow();
 
-            
-
         });
 
     }
 
+    initEventsLi(li){
+        /*
+        li.addEventListener('dblclick', e => {
+
+            let file = JSON.parse(li.dataset.file);
+            
+            switch (file.type) {
+
+                case 'folder':
+                    this.currentFolder.push(file.name);
+                    this.openFolder();
+
+                    break;
+
+                default:
+
+                    window.open('/file?path=' + file.path);
+                
+                    break;
+            }
+
+        });
+        */
+
+        li.addEventListener('click', e => {
+
+            let file = JSON.parse(li.dataset.file);
+
+            if (file.type == 'folder') {
+
+                this.currentFolder.push(file.name);
+                this.openFolder();
+
+
+            } else {
+
+
+                window.open('/file?path=' + file.path);
+
+
+                            //se o Shift esta pressionado
+            if (e.shiftKey) {
+
+                // primeiro li selecionado
+                let firstLi =  this.listFilesEl.querySelector('.selected');
+
+                if (firstLi) {
+
+                    let indexStart;
+                    let indexEnd;
+
+                    let lis = li.parentElement.childNodes;
+
+                    lis.forEach((el, index) => {
+
+                        if (firstLi === el) indexStart = index;
+                        if (li === el) indexEnd = index;
+
+                    });
+
+                    //console.log(indexStart);
+                    //console.log(indexEnd);
+
+                    //sort() ordenar array 
+                    let index = [indexStart, indexEnd].sort();
+
+                    lis.forEach((el, i) => {
+
+                        if (i >= index[0] && i <= index[1]) {
+
+                            el.classList.add('selected');
+                        }
+
+                    });
+
+                    this.listFilesEl.dispatchEvent(this.onselectionchange);
+
+                    return true;
+
+                }               
+
+            }
+
+            //se o Ctrl esta pressionado
+            if (!e.ctrlKey) {
+
+                this.listFilesEl.querySelectorAll('li.selected').forEach(el => {
+
+                    el.classList.remove('selected');
+
+                });
+
+            }
+
+            li.classList.toggle('selected');
+
+            this.listFilesEl.dispatchEvent(this.onselectionchange);
+
+            }
+
+        });
+    }
+
+    openFolder(){
+
+        if (this.lastFolder) this.getFirebaseRef(this.lastFolder).off('value');
+
+        this.renderNav();
+        this.readFiles();
+
+    }
 
     ajax(url, method = 'GET', formData = new FormData(), onprogress = function(){}, onloadstart = function(){}){
 
@@ -183,7 +308,6 @@ class DropBoxController {
 
         this.getSelection().forEach(li => {
 
-
             let file = JSON.parse(li.dataset.file);           
             let key = li.dataset.key;            
 
@@ -192,9 +316,7 @@ class DropBoxController {
             formData.append('path', file.path);
             formData.append('key', key);
 
-
             promises.push(this.ajax('/file', 'DELETE', formData));
-
 
         });
 
@@ -214,10 +336,11 @@ class DropBoxController {
         this.btnSendFileEl.disabled = false;
     }
 
-    getFirebaseRef(){
+    getFirebaseRef(path){
 
-        return firebase.database().ref('files');
+        if (!path) path = this.currentFolder.join('/');
 
+        return firebase.database().ref(path);
     }
 
 
@@ -225,8 +348,6 @@ class DropBoxController {
 
         this.snackModalEl.style.display = (show) ? 'block' : 'none';
     }
-
-
 
     uploadTask(files){
 
@@ -268,9 +389,6 @@ class DropBoxController {
         this.namefileEl.innerHTML = file.name;
         this.timeleftEl.innerHTML = this.formatTime(timeleft);
 
-
-        //console.log(timespent, timeleft, porcent);
-
     }
 
 
@@ -293,7 +411,6 @@ class DropBoxController {
         }       
         
         return '0';
-
     }
 
     getFileIconView(file){
@@ -485,6 +602,8 @@ class DropBoxController {
 
     readFiles(){
 
+        this.lastFolder = this.currentFolder.join('/');
+
         this.getFirebaseRef().on('value', snapshot => {
 
             this.listFilesEl.innerHTML = '';
@@ -494,10 +613,12 @@ class DropBoxController {
                 let key = snapshotItem.key;
                 let data = snapshotItem.val();
 
-                //console.log(key, data);
+                if (data.type) {
 
-                this.listFilesEl.appendChild(this.getFileView(key, data));
-
+                    //console.log(key, data);
+                    this.listFilesEl.appendChild(this.getFileView(key, data));
+                
+                }
 
             });
 
@@ -505,71 +626,59 @@ class DropBoxController {
 
     }
 
+    renderNav(){
 
-    initEventsLi(li){
+        let nav = document.createElement('nav');
+        let path = [];        
+        
+        for (let i = 0; i < this.currentFolder.length; i++ ) {
 
-        li.addEventListener('click', e => {
+            let folderName = this.currentFolder[i];
+            let span = document.createElement('span');
 
-            //se o Shift esta pressionado
-            if (e.shiftKey) {
+            path.push(folderName);
 
-                // primeiro li selecionado
-                let firstLi =  this.listFilesEl.querySelector('.selected');
+            if ((i + 1) === this.currentFolder.length) {
 
-                if (firstLi) {
+                span.innerHTML = folderName;
 
-                    let indexStart;
-                    let indexEnd;
+            } else {
 
-                    let lis = li.parentElement.childNodes;
+                span.className = 'breadcrumb-segment__wrapper';
+                span.innerHTML = `
+                    <span class="ue-effect-container uee-BreadCrumbSegment-link-${i}">
+                        <a href="#" data-path="${path.join('/')}" class="breadcrumb-segment">${folderName}</a>
+                    </span>
+                    <svg width="24" height="24" viewBox="0 0 24 24" class="mc-icon-template-stateless" style="top: 4px; position: relative;">
+                        <title>arrow-right</title>
+                        <path d="M10.414 7.05l4.95 4.95-4.95 4.95L9 15.534 12.536 12 9 8.464z" fill="#637282" fill-rule="evenodd"></path>
+                    </svg>                
+                `;
 
-                    lis.forEach((el, index) => {
-
-                        if (firstLi === el) indexStart = index;
-                        if (li === el) indexEnd = index;
-
-                    });
-
-                    //console.log(indexStart);
-                    //console.log(indexEnd);
-
-                    //sort() ordenar array 
-                    let index = [indexStart, indexEnd].sort();
-
-                    lis.forEach((el, i) => {
-
-                        if (i >= index[0] && i <= index[1]) {
-
-                            el.classList.add('selected');
-                        }
-
-                    });
-
-                    this.listFilesEl.dispatchEvent(this.onselectionchange);
-
-                    return true;
-
-                }               
-
+               
             }
 
-            //se o Ctrl esta pressionado
-            if (!e.ctrlKey) {
+            nav.appendChild(span);
 
-                this.listFilesEl.querySelectorAll('li.selected').forEach(el => {
+        }
 
-                    el.classList.remove('selected');
+        this.navEl.innerHTML = nav.innerHTML;
 
-                });
+        this.navEl.querySelectorAll('a').forEach(a => {
 
-            }
+            a.addEventListener('click', e => {
 
-            li.classList.toggle('selected');
+                e.preventDefault();
 
-            this.listFilesEl.dispatchEvent(this.onselectionchange);
-
+                this.currentFolder = a.dataset.path.split('/');
+            
+                this.openFolder();
+            });
+            
         });
+
     }
+
 }
 
 
